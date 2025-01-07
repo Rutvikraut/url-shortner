@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 )
 
 type URL struct {
@@ -16,6 +18,8 @@ type URL struct {
 }
 
 var urlDB = make(map[string]URL)
+
+var domainMetrics = make(map[string]int)
 
 func generateShortUrl(originalUrl string) string {
 	hasher:= md5.New()
@@ -29,6 +33,13 @@ func generateShortUrl(originalUrl string) string {
 }
 
 func createShortUrl(originalURL string) string {
+
+	for _, url := range urlDB {
+		if url.OriginalURL == originalURL {
+			return url.ShortenedURL
+		}
+	}
+
 	shortUrl:=generateShortUrl(originalURL)
 	id:=shortUrl
 	urlDB[id] = URL{
@@ -37,7 +48,18 @@ func createShortUrl(originalURL string) string {
 		ShortenedURL: shortUrl,
 	}
 
+	domain := extractDomain(originalURL)
+	domainMetrics[domain]++
+
 	return shortUrl
+}
+
+func extractDomain(url string) string {
+	parts := strings.Split(url, "/")
+	if len(parts) > 2 {
+		return parts[2]
+	}
+	return ""
 }
 
 func getUrl(id string) (URL,error){
@@ -49,8 +71,7 @@ func getUrl(id string) (URL,error){
 }
 
 func handler(w http.ResponseWriter, r *http.Request){
-	fmt.Println("Get method")
-	fmt.Fprintf(w,"Hello World")
+	fmt.Fprintf(w,"Url Shortening")
 }
 
 func shortUrlHandler(w http.ResponseWriter, r *http.Request){
@@ -87,11 +108,40 @@ func redirectUrlHandler(w http.ResponseWriter, r *http.Request){
 	http.Redirect(w,r,url.OriginalURL,http.StatusFound)
 }
 
+func metricsHandler(w http.ResponseWriter, r *http.Request) {
+	type DomainMetric struct {
+		Domain string
+		Count  int
+	}
+
+	var metrics []DomainMetric
+	for domain, count := range domainMetrics {
+		metrics = append(metrics, DomainMetric{Domain: domain, Count: count})
+	}
+	sort.Slice(metrics, func(i, j int) bool {
+		return metrics[i].Count > metrics[j].Count
+	})
+
+	if len(metrics) > 3 {
+		metrics = metrics[:3]
+	}
+
+	response := struct {
+		Metrics []DomainMetric `json:"metrics"`
+	}{Metrics: metrics}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+
 func main() {
 
 	http.HandleFunc("/",handler)
 	http.HandleFunc("/shorten",shortUrlHandler)
 	http.HandleFunc("/redirect/", redirectUrlHandler)
+	http.HandleFunc("/metrics", metricsHandler)
+
 
 	fmt.Println("Server starting on port 8080")
 	err:=http.ListenAndServe(":8080",nil)
