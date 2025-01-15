@@ -7,6 +7,11 @@ import (
 )
 
 func ShortUrlHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+	
 	var data struct {
 		URL string `json:"url"`
 	}
